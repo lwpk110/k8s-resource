@@ -1,0 +1,5 @@
+
+
+[host."https://dockerhub.zncdata.net/v2"]
+  capabilities = ["pull", "resolve"]
+  skip_verify = true

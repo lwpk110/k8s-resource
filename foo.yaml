@@ -1,0 +1,75 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: foo
+spec:
+  containers:
+  - command:
+    - tail
+    - -f
+    image: quay.io/operator-framework/opm:latest
+    imagePullPolicy: Always
+    name: extract
+    securityContext:
+      allowPrivilegeEscalation: false
+      capabilities:
+        drop:
+        - ALL
+    resources:
+      requests:
+        cpu: 10m
+        memory: 50Mi
+    volumeMounts:
+    - mountPath: /bundle
+      name: bundle
+  initContainers:
+  - command:
+    - /bin/cp
+    - -Rv
+    - /bin/cpb
+    - /util/cpb
+    image: quay.io/operator-framework/olm@sha256:1b6002156f568d722c29138575733591037c24b4bfabc67946f268ce4752c3e6
+    imagePullPolicy: IfNotPresent
+    name: util
+    securityContext:
+      allowPrivilegeEscalation: false
+      capabilities:
+        drop:
+        - ALL
+    resources:
+      requests:
+        cpu: 10m
+        memory: 50Mi
+    volumeMounts:
+    - mountPath: /util
+      name: util
+  - command:
+    - /util/cpb
+    - /bundle
+    image: quay.io/operatorhubio/cloud-native-postgresql@sha256:dc2cb34328afd060db743a255c08b4daeb904ac6f1e40b3f14e055af84fbe98a
+    imagePullPolicy: IfNotPresent
+    name: pull
+    securityContext:
+      allowPrivilegeEscalation: false
+      capabilities:
+        drop:
+        - ALL
+    resources:
+      requests:
+        cpu: 10m
+        memory: 50Mi
+    volumeMounts:
+    - mountPath: /bundle
+      name: bundle
+    - mountPath: /util
+      name: util
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 1001
+    seccompProfile:
+      type: RuntimeDefault
+  volumes:
+  - emptyDir: {}
+    name: bundle
+  - emptyDir: {}
+    name: util

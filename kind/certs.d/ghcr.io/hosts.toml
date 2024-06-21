@@ -1,0 +1,4 @@
+
+[host."https://ghcr.zncdata.net/v2"]
+  capabilities = ["pull", "resolve"]
+  skip_verify = true
