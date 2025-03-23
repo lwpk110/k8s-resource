@@ -1,0 +1,594 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  creationTimestamp: "2024-07-05T03:11:17Z"
+  generateName: hdfscluster-sample-default-namenode-
+  labels:
+    app.kubernetes.io/Name: hdfscluster-sample
+    app.kubernetes.io/component: namenode
+    app.kubernetes.io/instance: default
+    app.kubernetes.io/managed-by: hdfs-operator
+    controller-revision-hash: hdfscluster-sample-default-namenode-59ffd6c54
+    listeners.zncdata.dev/listener-class: cluster-internal
+    listeners.zncdata.dev/listener-name: hdfscluster-sample-default-namenode-0
+    statefulset.kubernetes.io/pod-name: hdfscluster-sample-default-namenode-0
+  name: hdfscluster-sample-default-namenode-0
+  namespace: kubedatastack
+  ownerReferences:
+  - apiVersion: apps/v1
+    blockOwnerDeletion: true
+    controller: true
+    kind: StatefulSet
+    name: hdfscluster-sample-default-namenode
+    uid: 60c4cf60-ba8d-4adb-91d0-d1b295e96f53
+  resourceVersion: "873511"
+  uid: 21ebe29a-ceea-4ac7-a3b2-afc1f03810bb
+spec:
+  affinity:
+    podAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+      - podAffinityTerm:
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/Name: hdfscluster-sample
+          topologyKey: kubernetes.io/hostname
+        weight: 20
+    podAntiAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+      - podAffinityTerm:
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/Name: hdfscluster-sample
+              app.kubernetes.io/component: namenode
+          topologyKey: kubernetes.io/hostname
+        weight: 70
+  containers:
+  - args:
+    - |
+      mkdir -p /stackable/config/namenode
+      cp /stackable/mount/config/namenode/*.xml /stackable/config/namenode
+      cp /stackable/mount/config/namenode/namenode.log4j.properties /stackable/config/namenode/log4j.properties
+      \
+
+      export KERBEROS_REALM=$(grep -oP 'default_realm = \K.*' /zncdata/kerberos/krb5.conf)
+
+
+      prepare_signal_handlers()
+      {
+        unset term_child_pid
+        unset term_kill_needed
+        trap 'handle_term_signal' TERM
+      }
+
+      handle_term_signal()
+      {
+        if [ "${term_child_pid}" ]; then
+            kill -TERM "${term_child_pid}" 2>/dev/null
+        else
+            term_kill_needed="yes"
+        fi
+      }
+
+      wait_for_termination()
+      {
+        set +e
+        term_child_pid=$1
+        if [[ -v term_kill_needed ]]; then
+            kill -TERM "${term_child_pid}" 2>/dev/null
+        fi
+        wait ${term_child_pid} 2>/dev/null
+        trap - TERM
+        wait ${term_child_pid} 2>/dev/null
+        set -e
+      }
+
+      rm -f /stackable/log/_vector/shutdown
+      prepare_signal_handlers
+      if [[ -d /stackable/listener ]]; then
+          export POD_ADDRESS=$(cat /stackable/listener/default-address/address)
+          for i in /stackable/listener/default-address/ports/*; do
+              export $(basename $i | tr a-z A-Z)_PORT="$(cat $i)"
+          done
+      fi
+      /stackable/hadoop/bin/hdfs namenode &
+      wait_for_termination $!
+      mkdir -p /stackable/log/_vector && touch /stackable/log/_vector/shutdown
+    command:
+    - /bin/bash
+    - -x
+    - -euo
+    - pipefail
+    - -c
+    env:
+    - name: HADOOP_CONF_DIR
+      value: /stackable/config/namenode
+    - name: HADOOP_HOME
+      value: /stackable/hadoop
+    - name: POD_NAME
+      valueFrom:
+        fieldRef:
+          apiVersion: v1
+          fieldPath: metadata.name
+    - name: ZOOKEEPER
+      valueFrom:
+        configMapKeyRef:
+          key: ZOOKEEPER
+          name: sample-hdfs-znode
+    - name: HADOOP_OPTS
+      value: -Djava.security.krb5.conf=/zncdata/kerberos/krb5.conf
+    - name: KRB5_CONFIG
+      value: /zncdata/kerberos/krb5.conf
+    - name: KRB5_CLIENT_KTNAME
+      value: /zncdata/kerberos/keytab
+    - name: HDFS_NAMENODE_OPTS
+      value: -Djava.security.krb5.conf=/zncdata/kerberos/krb5.conf -Xmx419430k -Djava.security.properties=/stackable/config/namenode/security.properties
+    image: quay.io/zncdatadev/hadoop:3.3.4
+    imagePullPolicy: IfNotPresent
+    livenessProbe:
+      failureThreshold: 5
+      httpGet:
+        path: /dfshealth.html
+        port: http
+        scheme: HTTP
+      initialDelaySeconds: 10
+      periodSeconds: 10
+      successThreshold: 1
+      timeoutSeconds: 1
+    name: namenode
+    ports:
+    - containerPort: 9870
+      name: http
+      protocol: TCP
+    - containerPort: 8020
+      name: rpc
+      protocol: TCP
+    - containerPort: 8183
+      name: metric
+      protocol: TCP
+    readinessProbe:
+      failureThreshold: 3
+      initialDelaySeconds: 10
+      periodSeconds: 10
+      successThreshold: 1
+      tcpSocket:
+        port: rpc
+      timeoutSeconds: 1
+    resources:
+      limits:
+        cpu: 500m
+        memory: 1Gi
+      requests:
+        cpu: 200m
+        memory: 1Gi
+    terminationMessagePath: /dev/termination-log
+    terminationMessagePolicy: File
+    volumeMounts:
+    - mountPath: /stackable/log
+      name: log
+    - mountPath: /zncdata/kerberos
+      name: kerberos
+    - mountPath: /stackable/mount/config/namenode
+      name: namenode-config
+    - mountPath: /stackable/mount/log/namenode
+      name: namenode-log-config
+    - mountPath: /stackable/listener
+      name: listener
+    - mountPath: /stackable/data
+      name: data
+    - mountPath: /var/run/secrets/kubernetes.io/serviceaccount
+      name: kube-api-access-lw9vc
+      readOnly: true
+  - args:
+    - |
+      mkdir -p /stackable/config/zkfc
+      cp /stackable/mount/config/zkfc/*.xml /stackable/config/zkfc
+      cp /stackable/mount/config/zkfc/zkfc.log4j.properties /stackable/config/zkfc/log4j.properties
+
+      export KERBEROS_REALM=$(grep -oP 'default_realm = \K.*' /zncdata/kerberos/krb5.conf)
+
+
+      /stackable/hadoop/bin/hdfs zkfc
+    command:
+    - /bin/bash
+    - -x
+    - -euo
+    - pipefail
+    - -c
+    env:
+    - name: HADOOP_CONF_DIR
+      value: /stackable/config/zkfc
+    - name: HADOOP_HOME
+      value: /stackable/hadoop
+    - name: POD_NAME
+      valueFrom:
+        fieldRef:
+          apiVersion: v1
+          fieldPath: metadata.name
+    - name: ZOOKEEPER
+      valueFrom:
+        configMapKeyRef:
+          key: ZOOKEEPER
+          name: sample-hdfs-znode
+    - name: HADOOP_OPTS
+      value: -Djava.security.krb5.conf=/zncdata/kerberos/krb5.conf
+    - name: KRB5_CONFIG
+      value: /zncdata/kerberos/krb5.conf
+    - name: KRB5_CLIENT_KTNAME
+      value: /zncdata/kerberos/keytab
+    image: quay.io/zncdatadev/hadoop:3.3.4
+    imagePullPolicy: IfNotPresent
+    name: zkfc
+    resources:
+      limits:
+        cpu: 500m
+        memory: 1Gi
+      requests:
+        cpu: 200m
+        memory: 1Gi
+    terminationMessagePath: /dev/termination-log
+    terminationMessagePolicy: File
+    volumeMounts:
+    - mountPath: /stackable/log
+      name: log
+    - mountPath: /zncdata/kerberos
+      name: kerberos
+    - mountPath: /stackable/mount/config/zkfc
+      name: zkfc-config
+    - mountPath: /stackable/mount/log/zkfc
+      name: zkfc-log-config
+    - mountPath: /var/run/secrets/kubernetes.io/serviceaccount
+      name: kube-api-access-lw9vc
+      readOnly: true
+  dnsPolicy: ClusterFirst
+  enableServiceLinks: true
+  hostname: hdfscluster-sample-default-namenode-0
+  initContainers:
+  - args:
+    - |
+      mkdir -p /stackable/config/format-namenodes
+      cp /stackable/mount/config/format-namenodes/*.xml /stackable/config/format-namenodes
+      cp /stackable/mount/config/format-namenodes/format-namenodes.log4j.properties /stackable/config/format-namenodes/log4j.properties
+
+      while true; do
+          if [ -e /tmp/debug ]; then
+              echo "/tmp/debug 文件存在，跳出循环"
+              break
+          else
+              echo "/tmp/debug 文件不存在，继续检测"
+              sleep 1
+          fi
+      done
+
+      export KERBEROS_REALM=$(grep -oP 'default_realm = \K.*' /zncdata/kerberos/krb5.conf)
+
+      echo "Getting ticket for nn/hdfscluster-sample.kubedatastack.svc.cluster.local@${KERBEROS_REALM}" from /stackable/kerberos/keytab
+      kinit "nn/hdfscluster-sample.kubedatastack.svc.cluster.local@${KERBEROS_REALM}" -kt /zncdata/kerberos/keytab
+
+
+      echo "Start formatting namenode $POD_NAME. Checking for active namenodes:"
+      for namenode_id in hdfscluster-sample-default-namenode-0 hdfscluster-sample-default-namenode-1
+      do
+          echo -n "Checking pod $namenode_id... "
+          SERVICE_STATE=$(/stackable/hadoop/bin/hdfs haadmin -getServiceState $namenode_id | tail -n1 || true)
+          if [ "$SERVICE_STATE" == "active" ]
+          then
+              ACTIVE_NAMENODE=$namenode_id
+              echo "active"
+              break
+          fi
+          echo ""
+      done
+
+      if [ ! -f "/stackable/data/namenode/current/VERSION" ]
+      then
+          if [ -z ${ACTIVE_NAMENODE+x} ]
+          then
+              echo "Create pod $POD_NAME as active namenode."
+              /stackable/hadoop/bin/hdfs namenode -format -noninteractive
+          else
+              echo "Create pod $POD_NAME as standby namenode."
+              /stackable/hadoop/bin/hdfs namenode -bootstrapStandby -nonInteractive
+          fi
+      else
+          cat "/stackable/data/namenode/current/VERSION"
+          echo "Pod $POD_NAME already formatted. Skipping..."
+      fi
+    command:
+    - /bin/bash
+    - -x
+    - -euo
+    - pipefail
+    - -c
+    env:
+    - name: HADOOP_CONF_DIR
+      value: /stackable/config/format-namenodes
+    - name: HADOOP_HOME
+      value: /stackable/hadoop
+    - name: POD_NAME
+      valueFrom:
+        fieldRef:
+          apiVersion: v1
+          fieldPath: metadata.name
+    - name: ZOOKEEPER
+      valueFrom:
+        configMapKeyRef:
+          key: ZOOKEEPER
+          name: sample-hdfs-znode
+    - name: HADOOP_OPTS
+      value: -Djava.security.krb5.conf=/zncdata/kerberos/krb5.conf
+    - name: KRB5_CONFIG
+      value: /zncdata/kerberos/krb5.conf
+    - name: KRB5_CLIENT_KTNAME
+      value: /zncdata/kerberos/keytab
+    image: quay.io/zncdatadev/hadoop:3.3.4
+    imagePullPolicy: IfNotPresent
+    name: format-namenodes
+    resources:
+      limits:
+        cpu: 500m
+        memory: 1Gi
+      requests:
+        cpu: 200m
+        memory: 1Gi
+    terminationMessagePath: /dev/termination-log
+    terminationMessagePolicy: File
+    volumeMounts:
+    - mountPath: /stackable/log
+      name: log
+    - mountPath: /zncdata/kerberos
+      name: kerberos
+    - mountPath: /stackable/mount/config/format-namenodes
+      name: format-namenode-config
+    - mountPath: /stackable/mount/log/format-namenodes
+      name: format-namenode-log-config
+    - mountPath: /stackable/data
+      name: data
+    - mountPath: /var/run/secrets/kubernetes.io/serviceaccount
+      name: kube-api-access-lw9vc
+      readOnly: true
+  - args:
+    - |
+      mkdir -p /stackable/config/format-zookeeper
+      cp /stackable/mount/config/format-zookeeper/*.xml /stackable/config/format-zookeeper
+      cp /stackable/mount/config/format-zookeeper/format-zookeeper.log4j.properties /stackable/config/format-zookeeper/log4j.properties
+
+      export KERBEROS_REALM=$(grep -oP 'default_realm = \K.*' /zncdata/kerberos/krb5.conf)
+
+
+      echo "Attempt to format ZooKeeper..."
+      if [[ "0" -eq "$(echo $POD_NAME | sed -e 's/.*-//')" ]] ; then
+          set +e
+          /stackable/hadoop/bin/hdfs zkfc -formatZK -nonInteractive
+          EXITCODE=$?
+          set -e
+          if [[ $EXITCODE -eq 0 ]]; then
+              echo "Successfully formatted"
+          elif [[ $EXITCODE -eq 2 ]]; then
+              echo "ZNode already existed, did nothing"
+          else
+              echo "Zookeeper format failed with exit code $EXITCODE"
+              exit $EXITCODE
+          fi
+
+      else
+          echo "ZooKeeper already formatted!"
+      fi
+    command:
+    - /bin/bash
+    - -x
+    - -euo
+    - pipefail
+    - -c
+    env:
+    - name: HADOOP_CONF_DIR
+      value: /stackable/config/format-zookeeper
+    - name: HADOOP_HOME
+      value: /stackable/hadoop
+    - name: POD_NAME
+      valueFrom:
+        fieldRef:
+          apiVersion: v1
+          fieldPath: metadata.name
+    - name: ZOOKEEPER
+      valueFrom:
+        configMapKeyRef:
+          key: ZOOKEEPER
+          name: sample-hdfs-znode
+    - name: HADOOP_OPTS
+      value: -Djava.security.krb5.conf=/zncdata/kerberos/krb5.conf
+    - name: KRB5_CONFIG
+      value: /zncdata/kerberos/krb5.conf
+    - name: KRB5_CLIENT_KTNAME
+      value: /zncdata/kerberos/keytab
+    image: quay.io/zncdatadev/hadoop:3.3.4
+    imagePullPolicy: IfNotPresent
+    name: format-zookeeper
+    resources:
+      limits:
+        cpu: 500m
+        memory: 1Gi
+      requests:
+        cpu: 200m
+        memory: 1Gi
+    terminationMessagePath: /dev/termination-log
+    terminationMessagePolicy: File
+    volumeMounts:
+    - mountPath: /stackable/log
+      name: log
+    - mountPath: /zncdata/kerberos
+      name: kerberos
+    - mountPath: /stackable/mount/config/format-zookeeper
+      name: format-zookeeper-config
+    - mountPath: /stackable/mount/log/format-zookeeper
+      name: format-zookeeper-log-config
+    - mountPath: /var/run/secrets/kubernetes.io/serviceaccount
+      name: kube-api-access-lw9vc
+      readOnly: true
+  nodeName: hdfs-operator-1.26.14-control-plane
+  preemptionPolicy: PreemptLowerPriority
+  priority: 0
+  restartPolicy: Always
+  schedulerName: default-scheduler
+  securityContext: {}
+  serviceAccount: hdfscluster-sample-sa
+  serviceAccountName: hdfscluster-sample-sa
+  subdomain: hdfscluster-sample-default-namenode
+  terminationGracePeriodSeconds: 30
+  tolerations:
+  - effect: NoExecute
+    key: node.kubernetes.io/not-ready
+    operator: Exists
+    tolerationSeconds: 300
+  - effect: NoExecute
+    key: node.kubernetes.io/unreachable
+    operator: Exists
+    tolerationSeconds: 300
+  volumes:
+  - name: data
+    persistentVolumeClaim:
+      claimName: data-hdfscluster-sample-default-namenode-0
+  - name: listener
+    persistentVolumeClaim:
+      claimName: listener-hdfscluster-sample-default-namenode-0
+  - emptyDir:
+      sizeLimit: 150Mi
+    name: log
+  - ephemeral:
+      volumeClaimTemplate:
+        metadata:
+          annotations:
+            secrets.zncdata.dev/class: kerberos-hdfs
+            secrets.zncdata.dev/kerberosServiceNames: nn,HTTP
+            secrets.zncdata.dev/scope: service=hdfscluster-sample
+          creationTimestamp: null
+        spec:
+          accessModes:
+          - ReadWriteOnce
+          resources:
+            requests:
+              storage: 1Gi
+          storageClassName: secrets.zncdata.dev
+          volumeMode: Filesystem
+    name: kerberos
+  - configMap:
+      defaultMode: 420
+      name: hdfscluster-sample-default-namenode
+    name: namenode-config
+  - configMap:
+      defaultMode: 420
+      name: hdfscluster-sample-default-namenode
+    name: namenode-log-config
+  - configMap:
+      defaultMode: 420
+      name: hdfscluster-sample-default-namenode
+    name: zkfc-config
+  - configMap:
+      defaultMode: 420
+      name: hdfscluster-sample-default-namenode
+    name: zkfc-log-config
+  - configMap:
+      defaultMode: 420
+      name: hdfscluster-sample-default-namenode
+    name: format-namenode-config
+  - configMap:
+      defaultMode: 420
+      name: hdfscluster-sample-default-namenode
+    name: format-namenode-log-config
+  - configMap:
+      defaultMode: 420
+      name: hdfscluster-sample-default-namenode
+    name: format-zookeeper-config
+  - configMap:
+      defaultMode: 420
+      name: hdfscluster-sample-default-namenode
+    name: format-zookeeper-log-config
+  - name: kube-api-access-lw9vc
+    projected:
+      defaultMode: 420
+      sources:
+      - serviceAccountToken:
+          expirationSeconds: 3607
+          path: token
+      - configMap:
+          items:
+          - key: ca.crt
+            path: ca.crt
+          name: kube-root-ca.crt
+      - downwardAPI:
+          items:
+          - fieldRef:
+              apiVersion: v1
+              fieldPath: metadata.namespace
+            path: namespace
+status:
+  conditions:
+  - lastProbeTime: null
+    lastTransitionTime: "2024-07-05T03:11:19Z"
+    message: 'containers with incomplete status: [format-namenodes format-zookeeper]'
+    reason: ContainersNotInitialized
+    status: "False"
+    type: Initialized
+  - lastProbeTime: null
+    lastTransitionTime: "2024-07-05T03:11:19Z"
+    message: 'containers with unready status: [namenode zkfc]'
+    reason: ContainersNotReady
+    status: "False"
+    type: Ready
+  - lastProbeTime: null
+    lastTransitionTime: "2024-07-05T03:11:19Z"
+    message: 'containers with unready status: [namenode zkfc]'
+    reason: ContainersNotReady
+    status: "False"
+    type: ContainersReady
+  - lastProbeTime: null
+    lastTransitionTime: "2024-07-05T03:11:19Z"
+    status: "True"
+    type: PodScheduled
+  containerStatuses:
+  - image: quay.io/zncdatadev/hadoop:3.3.4
+    imageID: ""
+    lastState: {}
+    name: namenode
+    ready: false
+    restartCount: 0
+    started: false
+    state:
+      waiting:
+        reason: PodInitializing
+  - image: quay.io/zncdatadev/hadoop:3.3.4
+    imageID: ""
+    lastState: {}
+    name: zkfc
+    ready: false
+    restartCount: 0
+    started: false
+    state:
+      waiting:
+        reason: PodInitializing
+  hostIP: 172.18.0.3
+  initContainerStatuses:
+  - containerID: containerd://65fdafcfea0308d5abbb05051e5c34d43d58a288a7fa399ce151455f46ec6ca2
+    image: quay.io/zncdatadev/hadoop:3.3.4
+    imageID: quay.io/zncdatadev/hadoop@sha256:1972aa8252bcc341e0dc6011be8b76678c2ec120ff7da601eb14944ec1b4a6e0
+    lastState: {}
+    name: format-namenodes
+    ready: false
+    restartCount: 0
+    state:
+      running:
+        startedAt: "2024-07-05T03:11:21Z"
+  - image: quay.io/zncdatadev/hadoop:3.3.4
+    imageID: ""
+    lastState: {}
+    name: format-zookeeper
+    ready: false
+    restartCount: 0
+    state:
+      waiting:
+        reason: PodInitializing
+  phase: Pending
+  podIP: 10.244.0.125
+  podIPs:
+  - ip: 10.244.0.125
+  qosClass: Burstable
+  startTime: "2024-07-05T03:11:19Z"

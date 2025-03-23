@@ -1,4 +1,4 @@
 
-[host."https://dockerhub.zncdata.net/v2"]
+[host."https://127.0.0.1:10809"]
   capabilities = ["pull", "resolve"]
   skip_verify = true

@@ -1,0 +1,87 @@
+# create namespace
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: kerberos
+---
+apiVersion: zookeeper.stackable.tech/v1alpha1
+kind: ZookeeperCluster
+metadata:
+  name: simple-zk
+  namespace: kerberos
+spec:
+  image:
+    productVersion: 3.8.3
+  servers:
+    roleGroups:
+      default:
+        replicas: 1
+---
+apiVersion: zookeeper.stackable.tech/v1alpha1
+kind: ZookeeperZnode
+metadata:
+  name: simple-hdfs-znode
+  namespace: kerberos
+spec:
+  clusterRef:
+    name: simple-zk
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: secret-provisioner-keytab
+  namespace: kerberos
+type: Opaque
+data:
+  keytab: BQIAAABJAAIABldIRy5DTgAFYWRtaW4ABWFkbWluAAAAAWaFTeACABQAIE7RgbL+35gACkQ3pqjo7br/Iw65I/N22TeAZTZfey0HAAAAAgAAADkAAgAGV0hHLkNOAAVhZG1pbgAFYWRtaW4AAAABZoVN4AIAEwAQbF0qBIzv9rg0Mr3xbfh6OAAAAAIAAABJAAIABldIRy5DTgAFYWRtaW4ABWFkbWluAAAAAWaFTeACABIAIKq3PzSuqEBm0TIDiphnNRoJ6ofzWjW5xVGketlv0pobAAAAAgAAADkAAgAGV0hHLkNOAAVhZG1pbgAFYWRtaW4AAAABZoVN4AIAEQAQgmZcD+dE+ifkKW2wXqm5QQAAAAIAAABJAAIABldIRy5DTgAFYWRtaW4ABWFkbWluAAAAAWaFTeACABoAIJYfRZErMzk2R8gnStLnE6MCNUq1XrUM/Q7dkaAIKzrPAAAAAgAAADkAAgAGV0hHLkNOAAVhZG1pbgAFYWRtaW4AAAABZoVN4AIAGQAQ4BEpLHxf3z5dskzJENgh1gAAAAIAAAA5AAIABldIRy5DTgAFYWRtaW4ABWFkbWluAAAAAWaFTeACABcAEJvcYdtaP87W2C1JJ58fBDAAAAAC
+---
+apiVersion: secrets.stackable.tech/v1alpha1
+kind: SecretClass
+metadata:
+  name: kerberos-hdfs
+  namespace: kerberos
+spec:
+  backend: 
+    kerberosKeytab:
+      realmName: WHG.CN
+      kdc: kerberos.whg.cn
+      admin:
+        mit:
+          kadminServer: kerberos.whg.cn
+      adminKeytabSecret:
+        namespace: kerberos
+        name: secret-provisioner-keytab
+      adminPrincipal: admin/admin@WHG.CN
+---
+apiVersion: hdfs.stackable.tech/v1alpha1
+kind: HdfsCluster
+metadata:
+  name: simple-hdfs
+  namespace: kerberos
+spec:
+  image:
+    productVersion: 3.3.6
+  clusterConfig:
+    zookeeperConfigMapName: simple-hdfs-znode
+    dfsReplication: 1
+    authentication:
+      tlsSecretClass: tls # Optional, defaults to "tls"
+      kerberos:
+        secretClass: kerberos-hdfs
+  nameNodes:
+    config:
+      listenerClass: external-stable
+    roleGroups:
+      default:
+        replicas: 2
+  dataNodes:
+    config:
+      listenerClass: external-unstable
+    roleGroups:
+      default:
+        replicas: 1
+  journalNodes:
+    roleGroups:
+      default:
+        replicas: 1
+
